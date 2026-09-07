@@ -30,7 +30,9 @@ For scheduled task execution
 param(
     [switch]$Help,
     [switch]$TestRun = $false,
-    [switch]$VerboseLogging = $false
+    [switch]$VerboseLogging = $false,
+    [switch]$SkipCalibre = $false,
+    [string]$CalibreLibrary = $null
 )
 
 # ============================================================================
@@ -48,6 +50,11 @@ $ArchiveDir = "$InputDir\archive"
 
 # Tools
 $PandocPath = "d:\booktools\pandoc.exe"
+$CalibrePath = "C:\Program Files\Calibre2\calibredb.exe"
+
+# Calibre Integration
+$AddToCalibre = $true
+$CalibreLibraryPath = $null  # $null = use default library
 
 # Output
 $LogFile = "$OutputDir\md2epub.log"
@@ -203,6 +210,18 @@ function Preprocess-File {
         # Remove markdown links: [text](url) -> text
         $linkPattern = '\[([^\]]+)\]\([^\)]+\)'
         $content = $content -replace $linkPattern, '$1'
+        
+        # Remove HTML audio/video tags
+        $content = $content -replace '<audio[^>]*>.*?</audio>', ''
+        $content = $content -replace '<video[^>]*>.*?</video>', ''
+        $content = $content -replace '<iframe[^>]*>.*?</iframe>', ''
+        
+        # Remove other HTML tags
+        $content = $content -replace '<[^>]+>', ''
+        
+        # Remove bare URLs
+        $content = $content -replace 'https?://[^\s]+', ''
+        $content = $content -replace 'www\.[^\s]+', ''
         
         # Detect first markdown image: ![alt](path)
         $imagePattern = '\!\[[^\]]*\]\(([^\)]+)\)'
@@ -382,6 +401,13 @@ function Convert-File {
             # Still consider conversion successful if pandoc worked
         }
         
+        # Add to Calibre library
+        if (-not $TestRun) {
+            Add-To-Calibre -EpubFilePath $outputFile -Title $title -Author $author
+        } else {
+            Write-Log "[TEST MODE] Would add to Calibre: $outputFile" "INFO"
+        }
+        
         return @{
             Success = $true
             Filename = $filename
@@ -395,6 +421,73 @@ function Convert-File {
             Filename = $filename
             Error = $lastError
         }
+    }
+}
+
+# ============================================================================
+# CALIBRE INTEGRATION
+# ============================================================================
+
+function Add-To-Calibre {
+    param(
+        [string]$EpubFilePath,
+        [string]$Title,
+        [string]$Author
+    )
+    
+    # Only add to Calibre if enabled and file exists
+    if (-not $AddToCalibre -or $SkipCalibre -or -not (Test-Path $EpubFilePath)) {
+        return $false
+    }
+    
+    try {
+        # Build calibre command
+        $calibreArgs = @(
+            "add",
+            "`"$EpubFilePath`"",  # Quote the file path
+            "--title=`"$Title`"",
+            "--authors=`"$Author`"",
+            "--languages=en"
+        )
+        
+        # Add library path if specified (parameter overrides config)
+        $libraryPath = $CalibreLibrary
+        if (-not [string]::IsNullOrEmpty($libraryPath)) {
+            $calibreArgs += "--with-library=`"$libraryPath`""
+        } elseif (-not [string]::IsNullOrEmpty($CalibreLibraryPath)) {
+            $calibreArgs += "--with-library=`"$CalibreLibraryPath`""
+        }
+        
+        Write-Log "Adding to Calibre: $EpubFilePath" "INFO"
+        
+        $processInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $processInfo.FileName = $CalibrePath
+        $processInfo.Arguments = $calibreArgs -join ' '
+        $processInfo.RedirectStandardError = $true
+        $processInfo.RedirectStandardOutput = $true
+        $processInfo.UseShellExecute = $false
+        $processInfo.CreateNoWindow = $true
+        
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $processInfo
+        $process.Start() | Out-Null
+        
+        $stderr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        
+        $exitCode = $process.ExitCode
+        
+        if ($exitCode -eq 0) {
+            Write-Log "Successfully added to Calibre library: $Title by $Author" "SUCCESS"
+            return $true
+        } else {
+            Write-Log "Failed to add to Calibre (exit code: $exitCode): $stderr" "ERROR"
+            return $false
+        }
+        
+    } catch {
+        Write-Log "Exception adding to Calibre: $_" "ERROR"
+        return $false
     }
 }
 

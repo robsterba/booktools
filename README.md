@@ -10,16 +10,18 @@ A collection of tools for book processing and conversion.
 ### Features
 
 - **Automatic Metadata Extraction**: Parses filenames in format `<title> by <author>.md`
-- **Weblink Removal**: Strips all markdown hyperlinks while preserving link text
+- **Weblink Removal**: Strips all markdown hyperlinks, HTML tags, and bare URLs while preserving link text
 - **Image Handling**: Detects embedded images, uses first image as EPUB cover
 - **EPUB Metadata**: Sets proper title, author, and language metadata
 - **Archive Management**: Automatically moves processed files to archive directory
+- **Calibre Integration**: **NEW** - Automatically adds converted EPUBs to Calibre library
 - **Error Handling**: Retries failed conversions once, then continues with next file
 - **Comprehensive Logging**: Complete logging to `d:\books\md2epub.log`
 
 ### Requirements
 
 - **Pandoc**: `pandoc.exe` must be in `d:\booktools\`
+- **Calibre**: `calibredb.exe` must be installed (default: `C:\Program Files\Calibre2\`)
 - **PowerShell**: Windows PowerShell 5.1 or later
 - **File Naming**: Files must follow pattern `<title> by <author>.md`
 
@@ -44,6 +46,16 @@ cd d:\booktools
 powershell.exe -ExecutionPolicy Bypass -File "d:\booktools\md2epub.ps1"
 ```
 
+#### Skip Calibre Integration
+```powershell
+.\md2epub.ps1 -SkipCalibre
+```
+
+#### Specify Custom Calibre Library
+```powershell
+.\md2epub.ps1 -CalibreLibrary "D:\My Calibre Library"
+```
+
 ### Input/Output
 
 - **Input Directory**: `D:\vault\Blinks` (configurable in script)
@@ -59,6 +71,9 @@ Edit these variables at the top of `md2epub.ps1`:
 $InputDir = "D:\vault\Blinks"
 $OutputDir = "d:\books"
 $PandocPath = "d:\booktools\pandoc.exe"
+$CalibrePath = "C:\Program Files\Calibre2\calibredb.exe"
+$AddToCalibre = $true
+$CalibreLibraryPath = $null  # $null = use default library
 $MaxRetryAttempts = 2
 $RetryDelaySeconds = 2
 $TocDepth = 3
@@ -74,6 +89,12 @@ d:\booktools\\
 ├── md2epub.ps1        # Main conversion script
 └── README.md           # This documentation
 
+Calibre Library (default location)
+├── metadata.db        # Calibre database
+└── <Author>\\
+    └── <Title>\\
+        └── <Title> by <Author>.epub  # Imported EPUB files
+
 d:\vault\Blinks\\
 ├── *.md                # Markdown files to convert
 └── archive\\          # Processed files moved here
@@ -82,6 +103,23 @@ d:\books\\
 ├── *.epub             # Generated EPUB files
 └── md2epub.log        # Conversion log
 ```
+
+### Calibre Integration
+
+The script automatically adds converted EPUB files to your Calibre library with proper metadata:
+
+- **Title**: Extracted from filename (before " by ")
+- **Author**: Extracted from filename (after " by ")
+- **Language**: English (configurable)
+- **Format**: EPUB3
+
+**Requirements**:
+- Calibre must be installed
+- `calibredb.exe` must be accessible
+
+**Disable Calibre**: Use `-SkipCalibre` parameter
+
+**Custom Library**: Use `-CalibreLibrary "path"` parameter
 
 ### Supported File Pattern
 
@@ -95,10 +133,14 @@ Examples:
 
 ### Preprocessing
 
-Before conversion, the script:
+Before conversion, the script thoroughly cleans the content:
 1. **Removes YAML front matter** (to avoid conflicts with explicit metadata)
 2. **Strips markdown links** (`[text](url)` → `text`)
-3. **Detects embedded images** (first image used as EPUB cover)
+3. **Removes HTML tags** (audio, video, iframe, etc.)
+4. **Removes bare URLs** (http://, https://, www.)
+5. **Detects embedded images** (first image used as EPUB cover)
+
+**Note**: This ensures Pandoc doesn't try to fetch external resources during conversion.
 
 ### Error Handling
 
